@@ -1,0 +1,25 @@
+with-expecter: true
+resolve-type-alias: False # https://vektra.github.io/mockery/v2.51/deprecations/#resolve-type-alias
+issue-845-fix: True # https://vektra.github.io/mockery/v2.51/deprecations/#issue-845-fix
+filename: "mock_{{.InterfaceName}}.go"
+dir: "mocks/{{.InterfaceName}}"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: "mocks{{.PackageName}}"
+packages:
+  github.com/kaudit/k8s_client:
+    interfaces:
+      K8sAuthLoader:
+        config:
+          recursive: False
+      PodAPI:
+        config:
+          recursive: False
+      ServiceAPI:
+        config:
+          recursive: False
+      DeploymentAPI:
+        config:
+          recursive: False
+      NamespaceAPI:
+        config:
+          recursive: False
