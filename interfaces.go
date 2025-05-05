@@ -15,8 +15,10 @@ import (
 // context of a specific namespace.
 type DeploymentAPI interface {
 	GetDeploymentByName(ctx context.Context, namespace, name string) (*appsv1.Deployment, error)
-	ListDeploymentsByLabel(ctx context.Context, namespace string, labelSelector string, timeoutSeconds time.Duration, limit int64) ([]appsv1.Deployment, error)
-	ListDeploymentsByField(ctx context.Context, namespace string, fieldSelector string, timeoutSeconds time.Duration, limit int64) ([]appsv1.Deployment, error)
+	ListDeploymentsByLabel(ctx context.Context, namespace string, labelSelector string,
+		timeoutSeconds time.Duration, limit int64) ([]appsv1.Deployment, error)
+	ListDeploymentsByField(ctx context.Context, namespace string, fieldSelector string,
+		timeoutSeconds time.Duration, limit int64) ([]appsv1.Deployment, error)
 }
 
 // NamespaceAPI defines an interface for interacting with Kubernetes Namespaces.
@@ -27,8 +29,10 @@ type DeploymentAPI interface {
 // so no namespace parameter is required for listing operations.
 type NamespaceAPI interface {
 	GetNamespaceByName(ctx context.Context, name string) (*corev1.Namespace, error)
-	ListNamespacesByLabel(ctx context.Context, labelSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Namespace, error)
-	ListNamespacesByField(ctx context.Context, fieldSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Namespace, error)
+	ListNamespacesByLabel(ctx context.Context, labelSelector string, timeoutSeconds time.Duration,
+		limit int64) ([]corev1.Namespace, error)
+	ListNamespacesByField(ctx context.Context, fieldSelector string, timeoutSeconds time.Duration,
+		limit int64) ([]corev1.Namespace, error)
 }
 
 // ServiceAPI defines an interface for interacting with Kubernetes Services.
@@ -39,8 +43,10 @@ type NamespaceAPI interface {
 // and this interface helps abstract the details of how these Services are queried.
 type ServiceAPI interface {
 	GetServiceByName(ctx context.Context, namespace, name string) (*corev1.Service, error)
-	ListServicesByLabel(ctx context.Context, namespace string, labelSelector string) ([]corev1.Service, error)
-	ListServicesByField(ctx context.Context, namespace string, fieldSelector string) ([]corev1.Service, error)
+	ListServicesByLabel(ctx context.Context, namespace string, labelSelector string,
+		timeoutSeconds time.Duration, limit int64) ([]corev1.Service, error)
+	ListServicesByField(ctx context.Context, namespace string, fieldSelector string,
+		timeoutSeconds time.Duration, limit int64) ([]corev1.Service, error)
 }
 
 // PodAPI defines an interface for interacting with Kubernetes Pods.
@@ -52,8 +58,10 @@ type ServiceAPI interface {
 // interaction with them.
 type PodAPI interface {
 	GetPodByName(ctx context.Context, namespace, name string) (*corev1.Pod, error)
-	ListPodsByLabel(ctx context.Context, namespace string, labelSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Pod, error)
-	ListPodsByField(ctx context.Context, namespace string, fieldSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Pod, error)
+	ListPodsByLabel(ctx context.Context, namespace string, labelSelector string,
+		timeoutSeconds time.Duration, limit int64) ([]corev1.Pod, error)
+	ListPodsByField(ctx context.Context, namespace string, fieldSelector string,
+		timeoutSeconds time.Duration, limit int64) ([]corev1.Pod, error)
 }
 
 // K8sAuthLoader defines a mechanism for loading Kubernetes authentication configuration data.
