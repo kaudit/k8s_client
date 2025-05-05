@@ -27,8 +27,8 @@ type DeploymentAPI interface {
 // so no namespace parameter is required for listing operations.
 type NamespaceAPI interface {
 	GetNamespaceByName(ctx context.Context, name string) (*corev1.Namespace, error)
-	ListNamespacesByLabel(ctx context.Context, labelSelector string) ([]corev1.Namespace, error)
-	ListNamespacesByField(ctx context.Context, fieldSelector string) ([]corev1.Namespace, error)
+	ListNamespacesByLabel(ctx context.Context, labelSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Namespace, error)
+	ListNamespacesByField(ctx context.Context, fieldSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Namespace, error)
 }
 
 // ServiceAPI defines an interface for interacting with Kubernetes Services.

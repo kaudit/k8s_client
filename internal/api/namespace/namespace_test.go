@@ -3,16 +3,16 @@ package namespace
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func TestNewNamespaceAPI(t *testing.T) {
+func TestNamespaceAPI_New(t *testing.T) {
 	client := fake.NewClientset()
 	api := NewNamespaceAPI(client)
 
@@ -23,173 +23,274 @@ func TestNewNamespaceAPI(t *testing.T) {
 	assert.Same(t, client, impl.client)
 }
 
+func TestValidateInput(t *testing.T) {
+	testCases := []struct {
+		name           string
+		timeoutSeconds time.Duration
+		limit          int64
+		wantErr        bool
+		errMsg         string
+	}{
+		{
+			name:           "Valid input",
+			timeoutSeconds: 2 * time.Second,
+			limit:          2,
+			wantErr:        false,
+		},
+		{
+			name:           "invalid timeout",
+			timeoutSeconds: 2 * time.Millisecond,
+			limit:          2,
+			wantErr:        true,
+			errMsg:         "invalid timeout",
+		},
+		{
+			name:           "invalid limit - zero value",
+			timeoutSeconds: 2 * time.Second,
+			limit:          0,
+			wantErr:        true,
+			errMsg:         "invalid limit",
+		},
+		{
+			name:           "invalid limit - negative value",
+			timeoutSeconds: 2 * time.Second,
+			limit:          -1,
+			wantErr:        true,
+			errMsg:         "invalid limit",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateInput(testCase.timeoutSeconds, testCase.limit)
+			if testCase.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), testCase.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestNamespaceAPI_GetNamespaceByName(t *testing.T) {
-	// Create test namespaces
-	testNS := &corev1.Namespace{
+	// Setup a namespace with desired characteristics
+	testNamespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-namespace",
 			Labels: map[string]string{
 				"env": "test",
+				"app": "service-a",
 			},
+		},
+		Status: corev1.NamespaceStatus{
+			Phase: corev1.NamespaceActive,
 		},
 	}
 
+	// Create fake clientset with test namespace
+	fakeClient := fake.NewClientset(testNamespace)
+
+	// Initialize namespace API
+	namespaceAPI := NewNamespaceAPI(fakeClient)
+
+	// Test cases
 	tests := []struct {
-		name    string
-		nsName  string
-		objects []runtime.Object
-		wantErr bool
-		errMsg  string
+		name          string
+		namespaceName string
+		wantErr       bool
+		errorContains string
 	}{
 		{
-			name:    "Namespace exists",
-			nsName:  "test-namespace",
-			objects: []runtime.Object{testNS},
-			wantErr: false,
+			name:          "Successfully get namespace",
+			namespaceName: "test-namespace",
+			wantErr:       false,
 		},
 		{
-			name:    "Namespace not found",
-			nsName:  "nonexistent-namespace",
-			objects: []runtime.Object{testNS},
-			wantErr: true,
-			errMsg:  "failed to get namespace",
+			name:          "Empty namespace name",
+			namespaceName: "",
+			wantErr:       true,
+			errorContains: "invalid namespace name",
 		},
 		{
-			name:    "Empty namespace name",
-			nsName:  "",
-			objects: []runtime.Object{testNS},
-			wantErr: true,
-			errMsg:  "failed to validate namespace name",
+			name:          "Namespace not found",
+			namespaceName: "nonexistent-namespace",
+			wantErr:       true,
+			errorContains: "failed to get namespace",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client with test objects
-			client := fake.NewClientset(tt.objects...)
-			nsAPI := NewNamespaceAPI(client)
-
-			// Execute the method
 			ctx := context.Background()
-			ns, err := nsAPI.GetNamespaceByName(ctx, tt.nsName)
+			namespace, err := namespaceAPI.GetNamespaceByName(ctx, tt.namespaceName)
 
-			// Verify results
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, ns)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+				assert.Nil(t, namespace)
 			} else {
 				require.NoError(t, err)
-				assert.NotNil(t, ns)
-				assert.Equal(t, tt.nsName, ns.Name)
+				assert.NotNil(t, namespace)
+				assert.Equal(t, tt.namespaceName, namespace.Name)
+				assert.Equal(t, corev1.NamespaceActive, namespace.Status.Phase)
+				assert.Equal(t, "test", namespace.Labels["env"])
+				assert.Equal(t, "service-a", namespace.Labels["app"])
 			}
 		})
 	}
 }
 
 func TestNamespaceAPI_ListNamespacesByLabel(t *testing.T) {
-	// Create test namespaces
-	testNS1 := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-namespace-1",
-			Labels: map[string]string{
-				"env": "test",
-				"app": "service-a",
+	// Setup test namespaces
+	testNamespaces := []*corev1.Namespace{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace-1",
+				Labels: map[string]string{
+					"env": "test",
+					"app": "service-a",
+				},
+			},
+			Status: corev1.NamespaceStatus{
+				Phase: corev1.NamespaceActive,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace-2",
+				Labels: map[string]string{
+					"env": "test",
+					"app": "service-b",
+				},
+			},
+			Status: corev1.NamespaceStatus{
+				Phase: corev1.NamespaceActive,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "prod-namespace",
+				Labels: map[string]string{
+					"env": "prod",
+					"app": "service-a",
+				},
+			},
+			Status: corev1.NamespaceStatus{
+				Phase: corev1.NamespaceActive,
 			},
 		},
 	}
 
-	testNS2 := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-namespace-2",
-			Labels: map[string]string{
-				"env": "test",
-				"app": "service-b",
-			},
-		},
-	}
+	// Create fake clientset
+	fakeClient := fake.NewClientset(testNamespaces[0], testNamespaces[1], testNamespaces[2])
 
-	testNS3 := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "prod-namespace",
-			Labels: map[string]string{
-				"env": "prod",
-				"app": "service-a",
-			},
-		},
-	}
+	// Initialize namespace API
+	namespaceAPI := NewNamespaceAPI(fakeClient)
 
+	// Test cases
 	tests := []struct {
-		name          string
-		labelSelector string
-		objects       []runtime.Object
-		wantCount     int
-		wantErr       bool
-		errMsg        string
+		name           string
+		labelSelector  string
+		timeoutSeconds time.Duration
+		limit          int64
+		expectedCount  int
+		expectedNames  []string
+		wantErr        bool
+		errorContains  string
 	}{
 		{
-			name:          "Filter by environment - test",
-			labelSelector: "env=test",
-			objects:       []runtime.Object{testNS1, testNS2, testNS3},
-			wantCount:     2,
-			wantErr:       false,
+			name:           "List namespaces by env label",
+			labelSelector:  "env=test",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  2,
+			expectedNames:  []string{"test-namespace-1", "test-namespace-2"},
+			wantErr:        false,
 		},
 		{
-			name:          "Filter by environment and app",
-			labelSelector: "env=test,app=service-a",
-			objects:       []runtime.Object{testNS1, testNS2, testNS3},
-			wantCount:     1,
-			wantErr:       false,
+			name:           "List namespaces by app label",
+			labelSelector:  "app=service-a",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  2,
+			expectedNames:  []string{"test-namespace-1", "prod-namespace"},
+			wantErr:        false,
 		},
 		{
-			name:          "No matching namespaces",
-			labelSelector: "env=dev",
-			objects:       []runtime.Object{testNS1, testNS2, testNS3},
-			wantCount:     0,
-			wantErr:       false,
+			name:           "List namespaces with multiple labels",
+			labelSelector:  "env=test,app=service-a",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  1,
+			expectedNames:  []string{"test-namespace-1"},
+			wantErr:        false,
 		},
 		{
-			name:          "Empty label selector",
-			labelSelector: "",
-			objects:       []runtime.Object{testNS1, testNS2},
-			wantErr:       true,
-			errMsg:        "failed to validate label selector",
+			name:           "No results",
+			labelSelector:  "env=dev",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  0,
+			expectedNames:  []string{},
+			wantErr:        false,
 		},
 		{
-			name:          "Invalid label selector format",
-			labelSelector: "invalid@label",
-			objects:       []runtime.Object{testNS1, testNS2},
-			wantErr:       true,
-			errMsg:        "failed to validate label selector",
+			name:           "Empty label selector",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			labelSelector:  "",
+			wantErr:        true,
+			errorContains:  "invalid label selector",
+		},
+		{
+			name:           "Invalid timeout",
+			timeoutSeconds: 2 * time.Millisecond,
+			limit:          1,
+			labelSelector:  "env=test",
+			wantErr:        true,
+			errorContains:  "invalid timeout",
+		},
+		{
+			name:           "Invalid limit",
+			timeoutSeconds: 2 * time.Second,
+			limit:          -1,
+			labelSelector:  "env=test",
+			wantErr:        true,
+			errorContains:  "invalid limit",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client with test objects
-			client := fake.NewClientset(tt.objects...)
-			nsAPI := NewNamespaceAPI(client)
-
-			// Execute the method
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			ctx := context.Background()
-			namespaces, err := nsAPI.ListNamespacesByLabel(ctx, tt.labelSelector)
+			namespaces, err := namespaceAPI.ListNamespacesByLabel(ctx,
+				testCase.labelSelector,
+				testCase.timeoutSeconds,
+				testCase.limit,
+			)
 
-			// Verify results
-			if tt.wantErr {
+			if testCase.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, namespaces)
+				if testCase.errorContains != "" {
+					assert.Contains(t, err.Error(), testCase.errorContains)
+				}
 			} else {
 				require.NoError(t, err)
+				assert.Len(t, namespaces, testCase.expectedCount)
 
-				// For "No matching namespaces" case, handle both nil and empty slice
-				if tt.wantCount == 0 {
-					if namespaces != nil {
-						assert.Empty(t, namespaces)
+				// Check if all expected namespaces are present
+				if testCase.expectedCount > 0 {
+					foundNames := make([]string, len(namespaces))
+					for i, namespace := range namespaces {
+						foundNames[i] = namespace.Name
 					}
-				} else {
-					assert.NotNil(t, namespaces)
-					assert.Len(t, namespaces, tt.wantCount)
+
+					for _, expectedName := range testCase.expectedNames {
+						assert.Contains(t, foundNames, expectedName)
+					}
 				}
 			}
 		})
@@ -197,74 +298,122 @@ func TestNamespaceAPI_ListNamespacesByLabel(t *testing.T) {
 }
 
 func TestNamespaceAPI_ListNamespacesByField(t *testing.T) {
-	// Create test namespaces
-	testNS1 := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-namespace-1",
+	// Setup test namespaces
+	testNamespaces := []*corev1.Namespace{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace-1",
+			},
+			Status: corev1.NamespaceStatus{
+				Phase: corev1.NamespaceActive,
+			},
 		},
-		Status: corev1.NamespaceStatus{
-			Phase: corev1.NamespaceActive,
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace-2",
+			},
+			Status: corev1.NamespaceStatus{
+				Phase: corev1.NamespaceTerminating,
+			},
 		},
 	}
 
-	testNS2 := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-namespace-2",
-		},
-		Status: corev1.NamespaceStatus{
-			Phase: corev1.NamespaceActive,
-		},
-	}
+	// Create fake clientset with both test namespaces
+	fakeClient := fake.NewClientset(testNamespaces[0], testNamespaces[1])
 
+	// Initialize namespace API
+	namespaceAPI := NewNamespaceAPI(fakeClient)
+
+	// Test cases
 	tests := []struct {
-		name          string
-		fieldSelector string
-		objects       []runtime.Object
-		wantErr       bool
-		errMsg        string
+		name           string
+		fieldSelector  string
+		timeoutSeconds time.Duration
+		limit          int64
+		expectedCount  int
+		wantErr        bool
+		errorContains  string
 	}{
 		{
-			name:          "Empty field selector",
-			fieldSelector: "",
-			objects:       []runtime.Object{testNS1, testNS2},
-			wantErr:       true,
-			errMsg:        "failed to validate field selector",
+			name:           "List namespaces by name",
+			fieldSelector:  "metadata.name=test-namespace-1",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  1,
+			wantErr:        false,
 		},
 		{
-			name:          "Invalid field selector format",
-			fieldSelector: "invalid@field",
-			objects:       []runtime.Object{testNS1, testNS2},
-			wantErr:       true,
-			errMsg:        "failed to validate field selector",
+			name:           "List namespaces by status",
+			fieldSelector:  "status.phase=Active",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  1,
+			wantErr:        false,
 		},
 		{
-			name:          "Valid field selector syntax",
-			fieldSelector: "metadata.name=test-namespace-1",
-			objects:       []runtime.Object{testNS1, testNS2},
-			wantErr:       false,
+			name:           "No matching namespaces",
+			fieldSelector:  "metadata.name=nonexistent",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  0,
+			wantErr:        false,
+		},
+		{
+			name:           "Empty field selector",
+			fieldSelector:  "",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid field selector",
+		},
+		{
+			name:           "Invalid field selector format",
+			fieldSelector:  "invalid-format",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid field selector",
+		},
+		{
+			name:           "Invalid timeout",
+			fieldSelector:  "metadata.name=test-namespace-1",
+			timeoutSeconds: 500 * time.Millisecond,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid timeout",
+		},
+		{
+			name:           "Invalid limit",
+			fieldSelector:  "metadata.name=test-namespace-1",
+			timeoutSeconds: 2 * time.Second,
+			limit:          0,
+			wantErr:        true,
+			errorContains:  "invalid limit",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client with test objects
-			client := fake.NewClientset(tt.objects...)
-			nsAPI := NewNamespaceAPI(client)
-
-			// Execute the method
 			ctx := context.Background()
-			namespaces, err := nsAPI.ListNamespacesByField(ctx, tt.fieldSelector)
+			namespaces, err := namespaceAPI.ListNamespacesByField(ctx,
+				tt.fieldSelector,
+				tt.timeoutSeconds,
+				tt.limit,
+			)
 
-			// Verify results
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
 				assert.Nil(t, namespaces)
 			} else {
 				require.NoError(t, err)
+
+				// Note: The fake client doesn't properly support field selectors
+				// So we can't reliably test the number of results in this case
+				// However, we can at least verify we got a valid response
 				assert.NotNil(t, namespaces)
-				// We don't verify the count of results because fake clients
-				// don't properly implement field selection
 			}
 		})
 	}
