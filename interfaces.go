@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -14,8 +15,8 @@ import (
 // context of a specific namespace.
 type DeploymentAPI interface {
 	GetDeploymentByName(ctx context.Context, namespace, name string) (*appsv1.Deployment, error)
-	ListDeploymentsByLabel(ctx context.Context, namespace string, labelSelector string) ([]appsv1.Deployment, error)
-	ListDeploymentsByField(ctx context.Context, namespace string, fieldSelector string) ([]appsv1.Deployment, error)
+	ListDeploymentsByLabel(ctx context.Context, namespace string, labelSelector string, timeoutSeconds time.Duration, limit int64) ([]appsv1.Deployment, error)
+	ListDeploymentsByField(ctx context.Context, namespace string, fieldSelector string, timeoutSeconds time.Duration, limit int64) ([]appsv1.Deployment, error)
 }
 
 // NamespaceAPI defines an interface for interacting with Kubernetes Namespaces.
