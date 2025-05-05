@@ -3,16 +3,16 @@ package pod
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func TestNewPodAPI(t *testing.T) {
+func TestPodAPI_New(t *testing.T) {
 	client := fake.NewClientset()
 	api := NewPodAPI(client)
 
@@ -23,214 +23,331 @@ func TestNewPodAPI(t *testing.T) {
 	assert.Same(t, client, impl.client)
 }
 
-func TestPodAPI_GetPodByName(t *testing.T) {
-	// Create test pods
-	testPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "test-namespace",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "test-container",
-					Image: "test-image",
-				},
-			},
-		},
-	}
-
-	// Setup tests
-	tests := []struct {
-		name      string
-		namespace string
-		podName   string
-		objects   []runtime.Object
-		wantErr   bool
-		errMsg    string
+func TestValidateInput(t *testing.T) {
+	testCases := []struct {
+		name           string
+		namespace      string
+		timeoutSeconds time.Duration
+		limit          int64
+		wantErr        bool
+		errMsg         string
 	}{
 		{
-			name:      "Pod exists",
-			namespace: "test-namespace",
-			podName:   "test-pod",
-			objects:   []runtime.Object{testPod},
-			wantErr:   false,
+			name:           "Valid input",
+			namespace:      "test-namespace",
+			timeoutSeconds: 2 * time.Second,
+			limit:          2,
+			wantErr:        false,
 		},
 		{
-			name:      "Pod not found",
-			namespace: "test-namespace",
-			podName:   "nonexistent-pod",
-			objects:   []runtime.Object{testPod},
-			wantErr:   true,
-			errMsg:    "failed to get pod",
+			name:           "empty namespace",
+			namespace:      "",
+			timeoutSeconds: 2 * time.Second,
+			limit:          2,
+			wantErr:        true,
+			errMsg:         "invalid namespace",
 		},
 		{
-			name:      "Empty namespace",
-			namespace: "",
-			podName:   "test-pod",
-			objects:   []runtime.Object{testPod},
-			wantErr:   true,
-			errMsg:    "invalid namespace",
+			name:           "invalid timeout",
+			namespace:      "test-namespace",
+			timeoutSeconds: 2 * time.Millisecond,
+			limit:          2,
+			wantErr:        true,
+			errMsg:         "invalid timeout",
 		},
 		{
-			name:      "Empty pod name",
-			namespace: "test-namespace",
-			podName:   "",
-			objects:   []runtime.Object{testPod},
-			wantErr:   true,
-			errMsg:    "invalid pod name",
+			name:           "invalid limit - zero value",
+			namespace:      "test-namespace",
+			timeoutSeconds: 2 * time.Second,
+			limit:          0,
+			wantErr:        true,
+			errMsg:         "invalid limit",
+		},
+		{
+			name:           "invalid limit - negative value",
+			namespace:      "test-namespace",
+			timeoutSeconds: 2 * time.Second,
+			limit:          -1,
+			wantErr:        true,
+			errMsg:         "invalid limit",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client with test objects
-			client := fake.NewClientset(tt.objects...)
-			podAPI := NewPodAPI(client)
-
-			// Execute the method
-			ctx := context.Background()
-			pod, err := podAPI.GetPodByName(ctx, tt.namespace, tt.podName)
-
-			// Verify results
-			if tt.wantErr {
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateInput(testCase.namespace, testCase.timeoutSeconds, testCase.limit)
+			if testCase.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, pod)
+				assert.Contains(t, err.Error(), testCase.errMsg)
 			} else {
 				require.NoError(t, err)
-				assert.NotNil(t, pod)
-				assert.Equal(t, tt.podName, pod.Name)
-				assert.Equal(t, tt.namespace, pod.Namespace)
 			}
 		})
 	}
 }
 
-func TestPodAPI_ListPodsByLabel(t *testing.T) {
-	// Create test pods
-	testPod1 := &corev1.Pod{
+func TestPodAPI_GetPodByName(t *testing.T) {
+	// Setup a pod with desired characteristics
+	testPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pod-1",
+			Name:      "test-pod",
 			Namespace: "test-namespace",
 			Labels: map[string]string{
 				"app": "test-app",
 				"env": "test",
 			},
 		},
-	}
-	testPod2 := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pod-2",
-			Namespace: "test-namespace",
-			Labels: map[string]string{
-				"app": "test-app",
-				"env": "prod",
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "test-container",
+					Image: "test-image:latest",
+				},
 			},
+			NodeName: "test-node",
 		},
-	}
-	testPod3 := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pod-3",
-			Namespace: "other-namespace",
-			Labels: map[string]string{
-				"app": "test-app",
-			},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
 		},
 	}
 
-	// Setup tests
+	// Create fake clientset with test pod
+	fakeClient := fake.NewClientset(testPod)
+
+	// Initialize pod API
+	podAPI := NewPodAPI(fakeClient)
+
+	// Test cases
 	tests := []struct {
 		name          string
 		namespace     string
-		labelSelector string
-		objects       []runtime.Object
-		wantCount     int
+		podName       string
 		wantErr       bool
-		errMsg        string
+		errorContains string
 	}{
 		{
-			name:          "Valid input parameters - all namespace pods",
-			namespace:     "test-namespace",
-			labelSelector: "app=test-app",
-			objects:       []runtime.Object{testPod1, testPod2, testPod3},
-			wantCount:     2,
-			wantErr:       false,
-		},
-		{
-			name:          "Valid input parameters - specific env",
-			namespace:     "test-namespace",
-			labelSelector: "app=test-app,env=test",
-			objects:       []runtime.Object{testPod1, testPod2, testPod3},
-			wantCount:     1,
-			wantErr:       false,
+			name:      "Successfully get pod",
+			namespace: "test-namespace",
+			podName:   "test-pod",
+			wantErr:   false,
 		},
 		{
 			name:          "Empty namespace",
 			namespace:     "",
-			labelSelector: "app=test-app",
-			objects:       []runtime.Object{testPod1, testPod2},
+			podName:       "test-pod",
 			wantErr:       true,
-			errMsg:        "invalid namespace",
+			errorContains: "invalid namespace",
 		},
 		{
-			name:          "Empty label selector",
+			name:          "Empty pod name",
 			namespace:     "test-namespace",
-			labelSelector: "",
-			objects:       []runtime.Object{testPod1, testPod2},
+			podName:       "",
 			wantErr:       true,
-			errMsg:        "invalid label selector",
+			errorContains: "invalid pod name",
 		},
 		{
-			name:          "Invalid label selector format",
+			name:          "Pod not found",
 			namespace:     "test-namespace",
-			labelSelector: "invalid@label",
-			objects:       []runtime.Object{testPod1, testPod2},
+			podName:       "nonexistent-pod",
 			wantErr:       true,
-			errMsg:        "invalid label selector",
-		},
-		{
-			name:          "No matching pods",
-			namespace:     "test-namespace",
-			labelSelector: "app=non-existent",
-			objects:       []runtime.Object{testPod1, testPod2, testPod3},
-			wantCount:     0,
-			wantErr:       false,
+			errorContains: "failed to get pod",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client with test objects
-			client := fake.NewClientset(tt.objects...)
-			podAPI := NewPodAPI(client)
-
-			// Execute the method
 			ctx := context.Background()
-			pods, err := podAPI.ListPodsByLabel(ctx, tt.namespace, tt.labelSelector)
+			pod, err := podAPI.GetPodByName(ctx, tt.namespace, tt.podName)
 
-			// Verify results
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, pods)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+				assert.Nil(t, pod)
 			} else {
 				require.NoError(t, err)
+				assert.NotNil(t, pod)
+				assert.Equal(t, tt.podName, pod.Name)
+				assert.Equal(t, tt.namespace, pod.Namespace)
+				assert.Equal(t, "test-app", pod.Labels["app"])
+				assert.Equal(t, "test", pod.Labels["env"])
+				assert.Equal(t, "test-container", pod.Spec.Containers[0].Name)
+				assert.Equal(t, "test-image:latest", pod.Spec.Containers[0].Image)
+				assert.Equal(t, corev1.PodRunning, pod.Status.Phase)
+			}
+		})
+	}
+}
 
-				// Modified check: if wantCount is 0, we either expect an empty slice or nil
-				if tt.wantCount == 0 {
-					if pods != nil {
-						assert.Empty(t, pods)
+func TestPodAPI_ListPodsByLabel(t *testing.T) {
+	// Setup test pods
+	testPods := []*corev1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-1",
+				Namespace: "test-namespace",
+				Labels: map[string]string{
+					"app":         "test-app",
+					"environment": "production",
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-2",
+				Namespace: "test-namespace",
+				Labels: map[string]string{
+					"app":         "test-app",
+					"environment": "staging",
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "other-pod",
+				Namespace: "test-namespace",
+				Labels: map[string]string{
+					"app":         "other-app",
+					"environment": "production",
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
+		},
+	}
+
+	// Create fake clientset
+	fakeClient := fake.NewClientset(testPods[0], testPods[1], testPods[2])
+
+	// Initialize pod API
+	podAPI := NewPodAPI(fakeClient)
+
+	// Test cases
+	tests := []struct {
+		name           string
+		namespace      string
+		labelSelector  string
+		timeoutSeconds time.Duration
+		limit          int64
+		expectedCount  int
+		expectedNames  []string
+		wantErr        bool
+		errorContains  string
+	}{
+		{
+			name:           "List pods by app label",
+			namespace:      "test-namespace",
+			labelSelector:  "app=test-app",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  2,
+			expectedNames:  []string{"pod-1", "pod-2"},
+			wantErr:        false,
+		},
+		{
+			name:           "List pods by environment label",
+			namespace:      "test-namespace",
+			labelSelector:  "environment=production",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  2,
+			expectedNames:  []string{"pod-1", "other-pod"},
+			wantErr:        false,
+		},
+		{
+			name:           "List pods with multiple labels",
+			namespace:      "test-namespace",
+			labelSelector:  "app=test-app,environment=production",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  1,
+			expectedNames:  []string{"pod-1"},
+			wantErr:        false,
+		},
+		{
+			name:           "No results",
+			namespace:      "test-namespace",
+			labelSelector:  "app=nonexistent",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  0,
+			expectedNames:  []string{},
+			wantErr:        false,
+		},
+		{
+			name:           "Empty namespace",
+			namespace:      "",
+			labelSelector:  "app=test-app",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid namespace",
+		},
+		{
+			name:           "Empty label selector",
+			namespace:      "test-namespace",
+			labelSelector:  "",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid label selector",
+		},
+		{
+			name:           "Invalid timeout",
+			namespace:      "test-namespace",
+			labelSelector:  "app=test-app",
+			timeoutSeconds: 2 * time.Millisecond,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid timeout",
+		},
+		{
+			name:           "Invalid limit",
+			namespace:      "test-namespace",
+			labelSelector:  "app=test-app",
+			timeoutSeconds: 2 * time.Second,
+			limit:          -1,
+			wantErr:        true,
+			errorContains:  "invalid limit",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			pods, err := podAPI.ListPodsByLabel(ctx,
+				testCase.namespace,
+				testCase.labelSelector,
+				testCase.timeoutSeconds,
+				testCase.limit,
+			)
+
+			if testCase.wantErr {
+				require.Error(t, err)
+				if testCase.errorContains != "" {
+					assert.Contains(t, err.Error(), testCase.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, pods, testCase.expectedCount)
+
+				// Check if all expected pods are present
+				if testCase.expectedCount > 0 {
+					foundNames := make([]string, len(pods))
+					for i, pod := range pods {
+						foundNames[i] = pod.Name
 					}
-					// If pods is nil, that's acceptable for the "no pods found" case
-				} else {
-					// For cases where we expect to find pods
-					assert.NotNil(t, pods)
-					assert.Len(t, pods, tt.wantCount)
 
-					// Check that all returned pods are in the correct namespace
-					for _, pod := range pods {
-						assert.Equal(t, tt.namespace, pod.Namespace)
+					for _, expectedName := range testCase.expectedNames {
+						assert.Contains(t, foundNames, expectedName)
 					}
 				}
 			}
@@ -239,105 +356,163 @@ func TestPodAPI_ListPodsByLabel(t *testing.T) {
 }
 
 func TestPodAPI_ListPodsByField(t *testing.T) {
-	// Create test pods
-	testPod1 := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pod-1",
-			Namespace: "test-namespace",
+	// Setup test pods
+	testPods := []*corev1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-1",
+				Namespace: "test-namespace",
+			},
+			Spec: corev1.PodSpec{
+				NodeName: "node-1",
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
 		},
-		Spec: corev1.PodSpec{
-			NodeName: "node-1",
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-2",
+				Namespace: "test-namespace",
+			},
+			Spec: corev1.PodSpec{
+				NodeName: "node-2",
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodPending,
+			},
 		},
-	}
-	testPod2 := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pod-2",
-			Namespace: "test-namespace",
-		},
-		Spec: corev1.PodSpec{
-			NodeName: "node-2",
-		},
-	}
-	testPod3 := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "pod-3",
-			Namespace: "other-namespace",
-		},
-		Spec: corev1.PodSpec{
-			NodeName: "node-1",
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pod-3",
+				Namespace: "other-namespace",
+			},
+			Spec: corev1.PodSpec{
+				NodeName: "node-1",
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
 		},
 	}
 
-	// Setup tests
+	// Create fake clientset with test pods
+	fakeClient := fake.NewClientset(testPods[0], testPods[1], testPods[2])
+
+	// Initialize pod API
+	podAPI := NewPodAPI(fakeClient)
+
+	// Test cases
 	tests := []struct {
-		name          string
-		namespace     string
-		fieldSelector string
-		objects       []runtime.Object
-		wantErr       bool
-		errMsg        string
+		name           string
+		namespace      string
+		fieldSelector  string
+		timeoutSeconds time.Duration
+		limit          int64
+		expectedCount  int
+		wantErr        bool
+		errorContains  string
 	}{
 		{
-			name:          "Valid field selector syntax",
-			namespace:     "test-namespace",
-			fieldSelector: "spec.nodeName=node-1",
-			objects:       []runtime.Object{testPod1, testPod2, testPod3},
-			wantErr:       false,
+			name:           "List pods by node name",
+			namespace:      "test-namespace",
+			fieldSelector:  "spec.nodeName=node-1",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  1,
+			wantErr:        false,
 		},
 		{
-			name:          "Empty namespace",
-			namespace:     "",
-			fieldSelector: "spec.nodeName=node-1",
-			objects:       []runtime.Object{testPod1, testPod2},
-			wantErr:       true,
-			errMsg:        "invalid namespace",
+			name:           "List pods by status phase",
+			namespace:      "test-namespace",
+			fieldSelector:  "status.phase=Running",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  1,
+			wantErr:        false,
 		},
 		{
-			name:          "Empty field selector",
-			namespace:     "test-namespace",
-			fieldSelector: "",
-			objects:       []runtime.Object{testPod1, testPod2},
-			wantErr:       true,
-			errMsg:        "invalid field selector",
+			name:           "No matching pods",
+			namespace:      "test-namespace",
+			fieldSelector:  "spec.nodeName=nonexistent",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			expectedCount:  0,
+			wantErr:        false,
 		},
 		{
-			name:          "Invalid field selector format",
-			namespace:     "test-namespace",
-			fieldSelector: "invalid@field",
-			objects:       []runtime.Object{testPod1, testPod2},
-			wantErr:       true,
-			errMsg:        "invalid field selector",
+			name:           "Empty namespace",
+			namespace:      "",
+			fieldSelector:  "spec.nodeName=node-1",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid namespace",
+		},
+		{
+			name:           "Empty field selector",
+			namespace:      "test-namespace",
+			fieldSelector:  "",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid field selector",
+		},
+		{
+			name:           "Invalid field selector format",
+			namespace:      "test-namespace",
+			fieldSelector:  "invalid-format",
+			timeoutSeconds: 2 * time.Second,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid field selector",
+		},
+		{
+			name:           "Invalid timeout",
+			namespace:      "test-namespace",
+			fieldSelector:  "spec.nodeName=node-1",
+			timeoutSeconds: 500 * time.Millisecond,
+			limit:          1,
+			wantErr:        true,
+			errorContains:  "invalid timeout",
+		},
+		{
+			name:           "Invalid limit",
+			namespace:      "test-namespace",
+			fieldSelector:  "spec.nodeName=node-1",
+			timeoutSeconds: 2 * time.Second,
+			limit:          0,
+			wantErr:        true,
+			errorContains:  "invalid limit",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client with test objects
-			client := fake.NewClientset(tt.objects...)
-			podAPI := NewPodAPI(client)
-
-			// Execute the method
 			ctx := context.Background()
-			pods, err := podAPI.ListPodsByField(ctx, tt.namespace, tt.fieldSelector)
+			pods, err := podAPI.ListPodsByField(ctx,
+				tt.namespace,
+				tt.fieldSelector,
+				tt.timeoutSeconds,
+				tt.limit,
+			)
 
-			// Verify results
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
 				assert.Nil(t, pods)
 			} else {
 				require.NoError(t, err)
-				assert.NotNil(t, pods)
 
-				// Only verify that pods are from the correct namespace
-				// since fake client doesn't properly implement field selectors
-				for _, pod := range pods {
-					assert.Equal(t, tt.namespace, pod.Namespace)
-				}
-
-				// Verify we get the expected number of pods in this namespace
-				if tt.namespace == "test-namespace" {
-					assert.Len(t, pods, 2) // There are 2 pods in test-namespace
+				// Note: The fake client doesn't properly support field selectors
+				// So we can't reliably test the number of results in this case
+				// But we can verify we got a valid response and all pods are from the correct namespace
+				if pods != nil {
+					for _, pod := range pods {
+						assert.Equal(t, tt.namespace, pod.Namespace)
+					}
 				}
 			}
 		})

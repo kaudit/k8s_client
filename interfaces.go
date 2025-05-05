@@ -52,8 +52,8 @@ type ServiceAPI interface {
 // interaction with them.
 type PodAPI interface {
 	GetPodByName(ctx context.Context, namespace, name string) (*corev1.Pod, error)
-	ListPodsByLabel(ctx context.Context, namespace string, labelSelector string) ([]corev1.Pod, error)
-	ListPodsByField(ctx context.Context, namespace string, fieldSelector string) ([]corev1.Pod, error)
+	ListPodsByLabel(ctx context.Context, namespace string, labelSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Pod, error)
+	ListPodsByField(ctx context.Context, namespace string, fieldSelector string, timeoutSeconds time.Duration, limit int64) ([]corev1.Pod, error)
 }
 
 // K8sAuthLoader defines a mechanism for loading Kubernetes authentication configuration data.
