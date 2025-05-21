@@ -32,6 +32,20 @@ type K8sClient struct {
 
 type K8sClientOption func(*K8sClient) error
 
+func validateNilK8sClient(k8sClient *K8sClient) bool {
+	if k8sClient == nil {
+		return true
+	}
+
+	if k8sClient.pods == nil || k8sClient.services == nil ||
+		k8sClient.deployments == nil || k8sClient.namespaces == nil {
+
+		return true
+	}
+
+	return false
+}
+
 // WithKubeConfigLoader creates a K8sClientOption that configures the client to use
 // authentication via a kubeconfig file. This option requires a K8sAuthLoader implementation
 // that can load the kubeconfig data.
@@ -41,8 +55,7 @@ type K8sClientOption func(*K8sClient) error
 // configuration.
 func WithKubeConfigLoader(loader api.K8sAuthLoader) K8sClientOption {
 	return func(k8sClient *K8sClient) error {
-		err := val.ValidateStruct(k8sClient)
-		if err == nil {
+		if validateNilK8sClient(k8sClient) {
 			return ErrAlreadyConfigured
 		}
 
@@ -69,8 +82,7 @@ func WithKubeConfigLoader(loader api.K8sAuthLoader) K8sClientOption {
 // configuration.
 func WithServiceAccount() K8sClientOption {
 	return func(k8sClient *K8sClient) error {
-		err := val.ValidateStruct(k8sClient)
-		if err == nil {
+		if validateNilK8sClient(k8sClient) {
 			return ErrAlreadyConfigured
 		}
 
