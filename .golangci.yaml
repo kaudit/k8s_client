@@ -1,0 +1,51 @@
+run:
+  tests: true
+  allow-parallel-runners: false
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+  govet:
+    enable-all: true
+  goimports:
+    local-prefixes: github.com/kaudit/api
+  gocyclo:
+    min-complexity: 10
+  misspell:
+    locale: US
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gocyclo
+    - gofmt
+    - goimports
+    - misspell
+    - unparam
+    - revive
+    - gochecknoinits
+    - gochecknoglobals
+  disable:
+    - depguard
+    - dupl
+  presets:
+    - bugs
+    - unused
+  fast: false
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - govet
+      text: "fieldalignment:"
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - gochecknoglobals
