@@ -123,21 +123,17 @@ func TestNamespaceAPI_GetNamespaceByName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			namespace, err := namespaceAPI.GetNamespaceByName(ctx, tt.namespaceName)
+			namespaceName, err := namespaceAPI.GetNamespaceByName(ctx, tt.namespaceName)
 
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
-				assert.Nil(t, namespace)
+				assert.Empty(t, namespaceName)
 			} else {
 				require.NoError(t, err)
-				assert.NotNil(t, namespace)
-				assert.Equal(t, tt.namespaceName, namespace.Name)
-				assert.Equal(t, corev1.NamespaceActive, namespace.Status.Phase)
-				assert.Equal(t, "test", namespace.Labels["env"])
-				assert.Equal(t, "service-a", namespace.Labels["app"])
+				assert.Equal(t, tt.namespaceName, namespaceName)
 			}
 		})
 	}
@@ -266,7 +262,7 @@ func TestNamespaceAPI_ListNamespacesByLabel(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx := context.Background()
-			namespaces, err := namespaceAPI.ListNamespacesByLabel(ctx,
+			namespaceNames, err := namespaceAPI.ListNamespacesByLabel(ctx,
 				testCase.labelSelector,
 				testCase.timeoutSeconds,
 				testCase.limit,
@@ -279,17 +275,12 @@ func TestNamespaceAPI_ListNamespacesByLabel(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
-				assert.Len(t, namespaces, testCase.expectedCount)
+				assert.Len(t, namespaceNames, testCase.expectedCount)
 
 				// Check if all expected namespaces are present
 				if testCase.expectedCount > 0 {
-					foundNames := make([]string, len(namespaces))
-					for i, namespace := range namespaces {
-						foundNames[i] = namespace.Name
-					}
-
 					for _, expectedName := range testCase.expectedNames {
-						assert.Contains(t, foundNames, expectedName)
+						assert.Contains(t, namespaceNames, expectedName)
 					}
 				}
 			}
@@ -395,7 +386,7 @@ func TestNamespaceAPI_ListNamespacesByField(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			namespaces, err := namespaceAPI.ListNamespacesByField(ctx,
+			namespaceNames, err := namespaceAPI.ListNamespacesByField(ctx,
 				tt.fieldSelector,
 				tt.timeoutSeconds,
 				tt.limit,
@@ -406,14 +397,10 @@ func TestNamespaceAPI_ListNamespacesByField(t *testing.T) {
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
-				assert.Nil(t, namespaces)
+				assert.Nil(t, namespaceNames)
 			} else {
 				require.NoError(t, err)
-
-				// Note: The fake client doesn't properly support field selectors
-				// So we can't reliably test the number of results in this case
-				// However, we can at least verify we got a valid response
-				assert.NotNil(t, namespaces)
+				assert.NotNil(t, namespaceNames)
 			}
 		})
 	}
