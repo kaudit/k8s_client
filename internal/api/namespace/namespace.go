@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/kaudit/val"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
@@ -36,16 +35,39 @@ func NewNamespaceAPI(client kubernetes.Interface) api.NamespaceAPI {
 //   - name: Name of the namespace (must be non-empty).
 //
 // Returns the matched *corev1.Namespace or an error if not found or invalid.
-func (n *NamespaceAPI) GetNamespaceByName(ctx context.Context, name string) (*corev1.Namespace, error) {
+func (n *NamespaceAPI) GetNamespaceByName(ctx context.Context, name string) (string, error) {
 	if err := val.ValidateWithTag(name, "required"); err != nil {
-		return nil, fmt.Errorf("invalid namespace name: %w", err)
+		return "", fmt.Errorf("invalid namespace name: %w", err)
 	}
 
 	ns, err := n.client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get namespace %q: %w", name, err)
+		return "", fmt.Errorf("failed to get namespace %q: %w", name, err)
 	}
-	return ns, nil
+	return ns.Name, nil
+}
+
+// ListNamespaces lists all namespaces in the cluster with pagination support.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control.
+//   - timeoutSeconds: Timeout duration for the API call (must be at least 1s).
+//   - limit: Maximum number of results per page (must be greater than 0).
+//
+// Returns all namespaces across all pages or an error if validation fails or API calls fail.
+func (n *NamespaceAPI) ListNamespaces(ctx context.Context, timeoutSeconds time.Duration, limit int64) ([]string, error) {
+	if err := validateInput(timeoutSeconds, limit); err != nil {
+		return nil, err
+	}
+
+	seconds := int64(timeoutSeconds.Seconds())
+
+	opts := metav1.ListOptions{
+		Limit:          limit,
+		TimeoutSeconds: &seconds,
+	}
+
+	return n.loopForResult(ctx, opts)
 }
 
 // ListNamespacesByLabel lists namespaces by label selector with pagination support.
@@ -58,7 +80,7 @@ func (n *NamespaceAPI) GetNamespaceByName(ctx context.Context, name string) (*co
 //
 // Returns all matching namespaces across all pages or an error if validation fails or API calls fail.
 func (n *NamespaceAPI) ListNamespacesByLabel(ctx context.Context, labelSelector string,
-	timeoutSeconds time.Duration, limit int64) ([]corev1.Namespace, error) {
+	timeoutSeconds time.Duration, limit int64) ([]string, error) {
 
 	if err := validateInput(timeoutSeconds, limit); err != nil {
 		return nil, err
@@ -88,7 +110,7 @@ func (n *NamespaceAPI) ListNamespacesByLabel(ctx context.Context, labelSelector 
 //
 // Returns all matching namespaces across all pages or an error if validation fails or API calls fail.
 func (n *NamespaceAPI) ListNamespacesByField(ctx context.Context, fieldSelector string,
-	timeoutSeconds time.Duration, limit int64) ([]corev1.Namespace, error) {
+	timeoutSeconds time.Duration, limit int64) ([]string, error) {
 
 	if err := validateInput(timeoutSeconds, limit); err != nil {
 		return nil, err
@@ -131,8 +153,8 @@ func validateInput(timeoutSeconds time.Duration, limit int64) error {
 //   - opts: List options including selectors, limit, and timeout.
 //
 // Returns the complete list of namespaces across all pages or an error if any API call fails.
-func (n *NamespaceAPI) loopForResult(ctx context.Context, opts metav1.ListOptions) ([]corev1.Namespace, error) {
-	var result []corev1.Namespace
+func (n *NamespaceAPI) loopForResult(ctx context.Context, opts metav1.ListOptions) ([]string, error) {
+	var result []string
 
 	for {
 		list, err := n.client.CoreV1().Namespaces().List(ctx, opts)
@@ -140,7 +162,9 @@ func (n *NamespaceAPI) loopForResult(ctx context.Context, opts metav1.ListOption
 			return nil, fmt.Errorf("failed to list namespaces: %w", err)
 		}
 
-		result = append(result, list.Items...)
+		for _, ns := range list.Items {
+			result = append(result, ns.Name)
+		}
 
 		if list.Continue == "" {
 			break

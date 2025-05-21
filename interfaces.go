@@ -25,13 +25,17 @@ type DeploymentAPI interface {
 // It provides high-level methods for retrieving and listing Namespaces with input
 // validation and pagination support. Unlike other resources, Namespaces are cluster-wide
 // objects and don't exist within other namespaces, so no namespace parameter is required
-// for listing operations. Methods support both label and field selector based filtering.
+// for listing operations. Methods return namespace names as strings rather than full
+// namespace objects. The interface supports retrieving individual namespaces by name
+// and listing namespaces using various filtering options including simple listing,
+// label-based filtering, and field-based filtering.
 type NamespaceAPI interface {
-	GetNamespaceByName(ctx context.Context, name string) (*corev1.Namespace, error)
+	GetNamespaceByName(ctx context.Context, name string) (string, error)
+	ListNamespaces(ctx context.Context, timeoutSeconds time.Duration, limit int64) ([]string, error)
 	ListNamespacesByLabel(ctx context.Context, labelSelector string, timeoutSeconds time.Duration,
-		limit int64) ([]corev1.Namespace, error)
+		limit int64) ([]string, error)
 	ListNamespacesByField(ctx context.Context, fieldSelector string, timeoutSeconds time.Duration,
-		limit int64) ([]corev1.Namespace, error)
+		limit int64) ([]string, error)
 }
 
 // ServiceAPI defines an interface for interacting with Kubernetes Services.
