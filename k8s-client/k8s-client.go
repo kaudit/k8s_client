@@ -55,7 +55,7 @@ func validateNilK8sClient(k8sClient *K8sClient) bool {
 // configuration.
 func WithKubeConfigLoader(loader api.K8sAuthLoader) K8sClientOption {
 	return func(k8sClient *K8sClient) error {
-		if validateNilK8sClient(k8sClient) {
+		if !validateNilK8sClient(k8sClient) {
 			return ErrAlreadyConfigured
 		}
 
@@ -82,7 +82,7 @@ func WithKubeConfigLoader(loader api.K8sAuthLoader) K8sClientOption {
 // configuration.
 func WithServiceAccount() K8sClientOption {
 	return func(k8sClient *K8sClient) error {
-		if validateNilK8sClient(k8sClient) {
+		if !validateNilK8sClient(k8sClient) {
 			return ErrAlreadyConfigured
 		}
 
